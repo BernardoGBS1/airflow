@@ -222,6 +222,37 @@ class TestDag:
         assert ser is not None
         assert session.scalar(select(DagRun).where(DagRun.dag_id == dag_id)) is not None
 
+    @conf_vars({("core", "load_examples"): "false"})
+    def test_dag_test_auto_parses_when_not_in_any_bundle(self, session):
+        """
+        DAG.test() should work even when the DAG is not part of any bundle,
+        e.g. when defined in a standalone script or temp file.
+        """
+        import pendulum
+        from airflow.sdk import dag as dag_decorator, task
+
+        @dag_decorator(start_date=pendulum.datetime(2024, 1, 1))
+        def my_inline_dag():
+            @task
+            def hello():
+                return "hello"
+            hello()
+
+        dag = my_inline_dag()
+        dag_id = dag.dag_id
+
+        # Ensure not serialized yet and not in any bundle
+        assert DBDagBag().get_latest_version_of_dag(dag_id, session=session) is None
+        assert session.scalar(select(DagRun).where(DagRun.dag_id == dag_id)) is None
+
+        dr = dag.test()
+
+        assert dr is not None
+        # Serialized DAG should now exist via our fallback
+        ser = DBDagBag().get_latest_version_of_dag(dag_id, session=session)
+        assert ser is not None
+        assert session.scalar(select(DagRun).where(DagRun.dag_id == dag_id)) is not None
+
     def teardown_method(self) -> None:
         clear_db_runs()
         clear_db_dags()

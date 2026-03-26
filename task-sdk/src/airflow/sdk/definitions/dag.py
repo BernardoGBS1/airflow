@@ -1297,6 +1297,27 @@ class DAG:
                     if version:
                         break
 
+                # Fallback: DAG is not in any bundle register it directly under the default bundle
+                if not version:
+                    from airflow.models.dag import DagModel
+                    from airflow.models.serialized_dag import SerializedDagModel
+                    from airflow.serialization.serialized_objects import LazyDeserializedDAG
+
+                    dag_model = session.get(DagModel, self.dag_id)
+                    if dag_model is None:
+                        dag_model = DagModel(dag_id=self.dag_id, bundle_name="dags-folder")
+                        session.add(dag_model)
+                        session.flush()
+
+                    SerializedDagModel.write_dag(
+                        dag=LazyDeserializedDAG.from_dag(self),
+                        bundle_name="dags-folder",
+                        bundle_version=None,
+                        session=session,
+                    )
+                    session.flush()
+                    version = DagVersion.get_version(self.dag_id)
+
             # Preserve callback functions from original Dag since they're lost during serialization
             # and yes it is a hack for now! It is a tradeoff for code simplicity.
             # Without it, we need "Scheduler Dag" (Serialized dag) for the scheduler bits
